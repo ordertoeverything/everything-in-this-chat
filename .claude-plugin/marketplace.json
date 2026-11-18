@@ -1,0 +1,13 @@
+{
+  "name": "the-orderly-entrepreneur",
+  "description": "Claude Code mods from The Orderly Entrepreneur.",
+  "owner": {
+    "name": "Melynda Weiland, The Orderly Entrepreneur"
+  },
+  "plugins": [
+    {
+      "name": "everything-in-this-chat",
+      "source": "./"
+    }
+  ]
+}
