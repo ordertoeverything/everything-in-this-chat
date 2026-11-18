@@ -825,7 +825,7 @@ async function listDir($: EngineInterface, path: string): Promise<Listing> {
     for (const entry of await $.fs.list(path)) {
       if (entry.name.startsWith('.')) continue
       if (entry.kind === 'dir') value.dirs.push(entry.name)
-      else if (entry.kind === 'file') {
+      else if (entry.kind === 'file' || entry.kind === 'other') {
         value.files += 1
         value.fileNames.push(entry.name)
       }

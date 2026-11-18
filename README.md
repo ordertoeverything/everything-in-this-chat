@@ -38,9 +38,10 @@ Type `/everything`.  It also opens on its own the first time a chat makes or use
 
 **In the Claude desktop app:**
 
-1. Click the **+** next to the chat box, then **Plugins**.
-2. Click **Add marketplace** and type `ordertoeverything/everything-in-this-chat`.
-3. Click **Add plugin**.
+1. Open **Settings**, then click **Customize**, then **Plugins**.
+2. Click **Add**, then **Add marketplace**, then **Add from a repository**.
+3. In the box, paste `https://github.com/ordertoeverything/everything-in-this-chat` and click **Sync**.
+4. Start a new chat and type `/everything`.
 
 **In Claude Code in a terminal:** type this and press Enter, then type `y` when it asks to add the marketplace.
 
