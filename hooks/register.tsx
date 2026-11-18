@@ -813,21 +813,25 @@ async function showInFinder($: EngineInterface, target: string, name: string): P
 // Folder listings, cached for a few seconds
 // ---------------------------------------------------------------------------------------------
 
-type Listing = { dirs: string[]; files: number }
+type Listing = { dirs: string[]; files: number; fileNames: string[] }
 const listCache = new Map<string, { at: number; value: Listing }>()
 
 async function listDir($: EngineInterface, path: string): Promise<Listing> {
   const now = Number(await $.clock.now())
   const hit = listCache.get(path)
   if (hit && now - hit.at < 5000) return hit.value
-  const value: Listing = { dirs: [], files: 0 }
+  const value: Listing = { dirs: [], files: 0, fileNames: [] }
   try {
     for (const entry of await $.fs.list(path)) {
       if (entry.name.startsWith('.')) continue
       if (entry.kind === 'dir') value.dirs.push(entry.name)
-      else if (entry.kind === 'file') value.files += 1
+      else if (entry.kind === 'file') {
+        value.files += 1
+        value.fileNames.push(entry.name)
+      }
     }
     value.dirs.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+    value.fileNames.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
   } catch {
     // an unreadable folder shows as empty
   }
@@ -837,6 +841,7 @@ async function listDir($: EngineInterface, path: string): Promise<Listing> {
 
 type DirRow =
   | { kind: 'dir'; path: string; name: string; depth: number; isOpen: boolean; files: number }
+  | { kind: 'file'; path: string; name: string; depth: number }
   | { kind: 'empty'; depth: number }
 const joinPath = (a: string, b: string) => a.replace(/\/+$/, '') + '/' + b
 
@@ -858,8 +863,16 @@ async function dirRows($: EngineInterface, root: string, open: string[]): Promis
       }
       const inner = await listDir($, child)
       rows.push({ kind: 'dir', path: child, name, depth, isOpen, files: inner.files })
-      if (inner.dirs.length === 0) rows.push({ kind: 'empty', depth: depth + 1 })
+      if (inner.dirs.length === 0 && inner.fileNames.length === 0) rows.push({ kind: 'empty', depth: depth + 1 })
       else await walk(child, inner, depth + 1)
+      if (isCut) return
+    }
+    for (const name of listing.fileNames) {
+      if (rows.length >= DIR_ROWS_MAX) {
+        isCut = true
+        return
+      }
+      rows.push({ kind: 'file', path: joinPath(path, name), name, depth })
     }
   }
   await walk(root, top, 0)
@@ -1214,21 +1227,30 @@ export const register: Register = on => {
                 const tag = tagOf(it)
                 const parent = it.kind === 'artifact' ? '' : parentOf(it.target)
                 return (
-                  <Box key={'mr-' + idx} justifyContent="space-between" alignItems="center" height={isDesk ? 2 : 1}>
-                    <Box alignItems="center" gap={1} flexShrink={1}>
-                      {Svg ? draw(chipSvg(tag), tag, 44, 18) : <Text color={chipColor(tag)}>{'[' + tag + ']'}</Text>}
-                      <Button key={'o-' + idx} plain onPress={() => void openTarget($, it.target, it.label)}>
-                        {it.label}
-                        <Text dimColor>{parent ? '  …/' + parent : ''}</Text>
-                      </Button>
-                    </Box>
-                    <Box alignItems="center" gap={1}>
-                      {it.kind === 'artifact' ? null : (
-                        <Button key={'mf-' + idx} plain onPress={() => void showInFinder($, it.target, it.label)}>
-                          <Text dimColor>Finder</Text>
+                  <Box key={'mr-' + idx} flexDirection="column" marginBottom={isDesk ? 1 : 0}>
+                    <Box alignItems="center" gap={1} overflow="hidden">
+                      <Box flexShrink={0}>
+                        {Svg ? draw(chipSvg(tag), tag, 32, 13) : <Text color={chipColor(tag)}>{'[' + tag + ']'}</Text>}
+                      </Box>
+                      <Box flexShrink={1} overflow="hidden">
+                        <Button key={'o-' + idx} plain onPress={() => void openTarget($, it.target, it.label)}>
+                          <Text wrap="truncate-end">{it.label}</Text>
                         </Button>
+                      </Box>
+                    </Box>
+                    <Box alignItems="center" gap={1} overflow="hidden">
+                      <Box flexGrow={1} flexShrink={1} overflow="hidden">
+                        <Text dimColor wrap="truncate-end">
+                          {(parent ? '…/' + parent + '  ' : '') + '×' + it.count + '  ' + hhmm(it.at)}
+                        </Text>
+                      </Box>
+                      {it.kind === 'artifact' ? null : (
+                        <Box flexShrink={0}>
+                          <Button key={'mf-' + idx} plain onPress={() => void showInFinder($, it.target, it.label)}>
+                            <Text dimColor>{finder}</Text>
+                          </Button>
+                        </Box>
                       )}
-                      <Text dimColor>{'×' + it.count + '  ' + hhmm(it.at)}</Text>
                     </Box>
                   </Box>
                 )
@@ -1308,7 +1330,13 @@ export const register: Register = on => {
           {tree.rows.map((r, i) =>
             r.kind === 'empty' ? (
               <Box key={'de-' + i} paddingLeft={r.depth * 2}>
-                <Text dimColor>No folders inside</Text>
+                <Text dimColor>Empty folder</Text>
+              </Box>
+            ) : r.kind === 'file' ? (
+              <Box key={'dfr-' + i} paddingLeft={r.depth * 2 + 2} overflow="hidden">
+                <Button key={'df-' + i} plain onPress={() => void openTarget($, r.path, r.name)}>
+                  <Text wrap="truncate-end">{r.name}</Text>
+                </Button>
               </Box>
             ) : (
               <Box key={'dr-' + i} paddingLeft={r.depth * 2} alignItems="center" gap={1}>

@@ -134,9 +134,9 @@ const FONT = '-apple-system, Helvetica, Arial, sans-serif'
 export function chipSvg(tag: string): string {
   const t = esc(tag.slice(0, 5))
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 18" width="44" height="18">` +
-    `<rect x="0.5" y="0.5" width="43" height="17" rx="8.5" fill="${chipColor(tag)}"/>` +
-    `<text x="22" y="12.6" text-anchor="middle" font-family="${FONT}" font-size="9.5" font-weight="700" letter-spacing="0.6" fill="#ffffff">${t}</text>` +
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 13" width="32" height="13">` +
+    `<rect x="0.5" y="0.5" width="31" height="12" rx="6" fill="${chipColor(tag)}"/>` +
+    `<text x="16" y="9.2" text-anchor="middle" font-family="${FONT}" font-size="7.2" font-weight="700" letter-spacing="0.3" fill="#ffffff">${t}</text>` +
     `</svg>`
   )
 }
