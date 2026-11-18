@@ -105,6 +105,9 @@ for (const surface of ['desktop', 'terminal'] as const) {
     await $.session.start({ cwd: '/Users/x/Claude', surface, isInteractive: true })
 
     const ui = await $.ui.mount({ ...PANE, surface })
+    // A new chat starts with every section closed; open them all to look inside.
+    expect(await ui.find({ type: 'Button', key: 'o-0' })).toBeFalsy()
+    await ui.press({ key: 'fold-all' })
 
     expect(await ui.find({ type: 'Text', text: /Could not draw/ })).toBeFalsy()
     // To-do: two of three steps are done after the "advance".
@@ -152,6 +155,7 @@ test('an empty chat shows the empty words', async ($, on) => {
   on('clock.now', () => ({ value: 1_700_000_000_000 }))
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'fold-all' })
   expect(await ui.find({ type: 'Text', text: /No to-do list yet/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /None used yet/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /No helpers yet/ })).toBeTruthy()
@@ -198,6 +202,7 @@ for (const surface of ['desktop', 'terminal'] as const) {
     } as never)
 
     const before = await $.ui.mount({ ...PANE, surface })
+    await before.press({ key: 'fold-all' })
     expect(await before.find({ type: 'Text', text: /Step 2 of 4 · estimate after step 1 · just started/ })).toBeTruthy()
     await before.unmount()
 
@@ -206,6 +211,7 @@ for (const surface of ['desktop', 'terminal'] as const) {
     clock.now = T0 + 4 * MIN
 
     const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'fold-all' })
     expect(await ui.find({ type: 'Text', text: /Step 3 of 4 · about 6 min left · 4 min in/ })).toBeTruthy()
     if (surface === 'desktop') expect(await ui.find({ type: 'Svg' })).toBeTruthy()
     await ui.unmount()
@@ -225,6 +231,7 @@ for (const surface of ['desktop', 'terminal'] as const) {
     } as never)
 
     const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'fold-all' })
     expect(await ui.find({ type: 'Text', text: /Step \d of/ })).toBeFalsy()
     expect(await ui.find({ type: 'Text', text: / left$/ })).toBeFalsy()
     await ui.unmount()
@@ -245,6 +252,7 @@ for (const surface of ['desktop', 'terminal'] as const) {
     await $.session.start({ cwd: '/Users/x/Claude', surface, isInteractive: true })
 
     const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'fold-all' })
     expect(await ui.find({ type: 'Text', text: /^1 helper working · / })).toBeTruthy()
     await ui.unmount()
   })
@@ -278,6 +286,7 @@ for (const surface of ['desktop', 'terminal'] as const) {
     await $.session.start({ cwd: '/Users/x/Claude', surface, isInteractive: true })
 
     const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'fold-all' })
     expect(await ui.find({ type: 'Text', text: /^1 working$/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /^failed$/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /^done$/ })).toBeTruthy()
@@ -301,6 +310,7 @@ for (const surface of ['desktop', 'terminal'] as const) {
       })
     await $.session.start({ cwd: '/Users/x/Claude', surface, isInteractive: true })
     const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'fold-all' })
     expect(await ui.find({ type: 'Text', text: /^Chat memory$/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /^5-hour limit$/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /^Weekly limit$/ })).toBeTruthy()

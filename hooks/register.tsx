@@ -26,7 +26,9 @@ const board = atom({ plugin: 'everything-in-this-chat', key: 'board' } as const,
 const helpersAtom = atom({ plugin: 'everything-in-this-chat', key: 'helpers' } as const, { list: [], seeded: false } as Helpers, { shape: 'helpers-1' })
 const emptyWork: Work = { listStart: 0, doneAt: [], helperStart: 0 }
 const workAtom = atom({ plugin: 'everything-in-this-chat', key: 'work' } as const, emptyWork, { shape: 'work-1' })
-const foldedSet = atom({ plugin: 'everything-in-this-chat', key: 'folded' } as const, [] as string[])
+// Every section starts closed in a new chat; a click opens one.
+const ALL_SECTIONS = ['todo', 'helpers', 'usage', 'artifact', 'made', 'changed', 'sent', 'connectors', 'folder', 'files', 'skills']
+const foldedSet = atom({ plugin: 'everything-in-this-chat', key: 'folded' } as const, ALL_SECTIONS as string[])
 const openDirsSet = atom({ plugin: 'everything-in-this-chat', key: 'openDirs' } as const, [] as string[])
 const openAppsSet = atom({ plugin: 'everything-in-this-chat', key: 'openApps' } as const, [] as string[])
 
