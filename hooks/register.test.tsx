@@ -254,7 +254,36 @@ for (const surface of ['desktop', 'terminal'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
     await ui.press({ key: 'fold-all' })
     expect(await ui.find({ type: 'Text', text: /^1 helper working · / })).toBeTruthy()
+    if (surface === 'desktop') expect(await ui.find({ type: 'Svg' })).toBeTruthy()
+    else expect(await ui.find({ type: 'Text', text: /▰/ })).toBeTruthy()
     await ui.unmount()
+  })
+
+  test('the pane shows Claude working mid-reply with no to-do, then goes quiet on ' + surface, async ($, on) => {
+    const clock = { now: T0 }
+    quietHooks(on, [], clock)
+    on('turn.start', (_: unknown, e: { turnId?: string }) => ({ turnId: e.turnId ?? 't1' }))
+    on('turn.complete', () => ({ text: 'done' }))
+    await $.session.start({ cwd: '/Users/x/Claude', surface, isInteractive: true })
+
+    // A helper's own turn does not count as Claude working.
+    await $.turn.start({ text: '', turnId: 'h1', agentId: 'helper1' })
+    const idle = await $.ui.mount({ ...PANE, surface })
+    expect(await idle.find({ type: 'Text', text: /Nothing running right now/ })).toBeTruthy()
+    await idle.unmount()
+
+    await $.turn.start({ text: 'fix it', turnId: 't1' })
+    clock.now = T0 + 2 * MIN
+    const busy = await $.ui.mount({ ...PANE, surface })
+    expect(await busy.find({ type: 'Text', text: /^Claude is working · 2 min in$/ })).toBeTruthy()
+    if (surface === 'desktop') expect(await busy.find({ type: 'Svg' })).toBeTruthy()
+    else expect(await busy.find({ type: 'Text', text: /▰/ })).toBeTruthy()
+    await busy.unmount()
+
+    await $.turn.complete({ answer: 'done', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' })
+    const after = await $.ui.mount({ ...PANE, surface })
+    expect(await after.find({ type: 'Text', text: /Nothing running right now/ })).toBeTruthy()
+    await after.unmount()
   })
 }
 

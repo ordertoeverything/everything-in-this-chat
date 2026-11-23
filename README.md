@@ -28,6 +28,8 @@ Click any file or page to open it.  Files also have a **Finder** button that sho
 
 The bar under **Collapse all** fills up as Claude works through its to-do list, with a line like "Step 2 of 4 · about 3 min left · 6 min in."  The time left is a guess based on how long the finished steps took.
 
+When Claude is working without a to-do list, or a helper is off doing a job, a small teal piece moves along the bar with a line like "Claude is working · 2 min in."
+
 When nothing is running, it's an empty gray bar that says "Nothing running right now."
 
 ## How to open it

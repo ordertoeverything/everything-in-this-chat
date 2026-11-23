@@ -44,6 +44,8 @@ export type Work = {
   doneAt: number[]
   /** When the current group of working helpers was first seen. */
   helperStart: number
+  /** When the main chat's current turn began; 0 while Claude is not working. */
+  turnStart: number
 }
 
 export type AppCall = { words: string; arg: string; at: number }

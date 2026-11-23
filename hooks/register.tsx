@@ -24,8 +24,8 @@ const emptyBoard: Board = {
 }
 const board = atom({ plugin: 'everything-in-this-chat', key: 'board' } as const, emptyBoard, { shape: 'board-1' })
 const helpersAtom = atom({ plugin: 'everything-in-this-chat', key: 'helpers' } as const, { list: [], seeded: false } as Helpers, { shape: 'helpers-1' })
-const emptyWork: Work = { listStart: 0, doneAt: [], helperStart: 0 }
-const workAtom = atom({ plugin: 'everything-in-this-chat', key: 'work' } as const, emptyWork, { shape: 'work-1' })
+const emptyWork: Work = { listStart: 0, doneAt: [], helperStart: 0, turnStart: 0 }
+const workAtom = atom({ plugin: 'everything-in-this-chat', key: 'work' } as const, emptyWork, { shape: 'work-2' })
 // Every section starts closed in a new chat; a click opens one.
 const ALL_SECTIONS = ['todo', 'helpers', 'usage', 'artifact', 'made', 'changed', 'sent', 'connectors', 'folder', 'files', 'skills']
 const foldedSet = atom({ plugin: 'everything-in-this-chat', key: 'folded' } as const, ALL_SECTIONS as string[])
@@ -605,6 +605,8 @@ async function ensureClock($: EngineInterface): Promise<void> {
 }
 
 type WorkInfo = {
+  /** True while Claude is mid-reply. */
+  busy: boolean
   done: number
   total: number
   current: string
@@ -618,16 +620,17 @@ type WorkInfo = {
 function workInfo(todo: Step[], hs: Helpers, w: Work, now: number): WorkInfo | null {
   const hasTodo = todoLive(todo)
   const helpers = hs.list.filter(x => x.status === 'working')
-  if (!hasTodo && helpers.length === 0) return null
+  const busy = w.turnStart > 0
+  if (!hasTodo && helpers.length === 0 && !busy) return null
   const done = hasTodo ? doneOf(todo) : 0
   const total = hasTodo ? todo.length : 0
   const step = hasTodo ? (todo.find(s => s.status === 'in_progress') ?? todo.find(s => s.status !== 'completed')) : undefined
   let startedAt = 0
   if (hasTodo) startedAt = w.listStart
-  else {
+  else if (helpers.length > 0) {
     const times = helpers.map(x => x.at).filter(t => t > 0)
     startedAt = times.length ? Math.min(...times) : w.helperStart
-  }
+  } else startedAt = w.turnStart
   const elapsedMs = startedAt > 0 ? Math.max(0, now - startedAt) : 0
   let leftMs: number | null = null
   if (hasTodo && w.listStart > 0 && w.doneAt.length > 0) {
@@ -635,7 +638,7 @@ function workInfo(todo: Step[], hs: Helpers, w: Work, now: number): WorkInfo | n
     const each = (last - w.listStart) / w.doneAt.length
     if (each >= 0) leftMs = each * (total - done)
   }
-  return { done, total, current: step?.content ?? '', helpers: helpers.length, elapsedMs, leftMs }
+  return { busy, done, total, current: step?.content ?? '', helpers: helpers.length, elapsedMs, leftMs }
 }
 
 const elapsedWords = (ms: number) => {
@@ -678,6 +681,22 @@ function barSvg(done: number, total: number, color: string, width: number): stri
     `</svg>`
   )
 }
+/** A bar with no known end: a short teal piece that moves along a little each tick. */
+function busySvg(color: string, width: number, elapsedMs: number): string {
+  const piece = Math.round(width / 4)
+  const at = Math.floor(elapsedMs / TICK_MS) % 4
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} 10" width="${width}" height="10">` +
+    `<rect width="${width}" height="10" rx="5" fill="#E5E7EB"/>` +
+    `<rect x="${at * piece}" width="${piece}" height="10" rx="5" fill="${color}"/>` +
+    `</svg>`
+  )
+}
+const busyTextBar = (len: number, elapsedMs: number) => {
+  const piece = Math.max(1, Math.round(len / 4))
+  const at = (Math.floor(elapsedMs / TICK_MS) % 4) * piece
+  return '▱'.repeat(at) + '▰'.repeat(piece) + '▱'.repeat(Math.max(0, len - at - piece))
+}
 const textBar = (done: number, total: number, len: number) => {
   const on = Math.min(len, Math.round((done / total) * len))
   return '▰'.repeat(on) + '▱'.repeat(len - on)
@@ -704,12 +723,19 @@ function workRow(info: WorkInfo | null, ui: { Box: any; Text: any; Svg?: any }, 
   const hasTodo = info.total > 0
   const parts: string[] = []
   if (hasTodo) parts.push('Step ' + Math.min(info.total, info.done + 1) + ' of ' + info.total)
-  else parts.push(helperWords(info.helpers))
+  else if (info.helpers > 0) parts.push(helperWords(info.helpers))
+  else parts.push('Claude is working')
   if (hasTodo) parts.push(info.leftMs === null ? 'estimate after step 1' : leftWords(info.leftMs))
   parts.push(elapsedWords(info.elapsedMs))
   if (hasTodo && info.helpers > 0) parts.push(helperWords(info.helpers))
   const cols = Math.max(20, columns || 60)
-  const bar = !hasTodo ? null : isDesk && Svg ? (
+  const bar = !hasTodo ? (
+    isDesk && Svg ? (
+      <Svg source={busySvg(color, Math.max(200, cols * 10), info.elapsedMs)} alt={parts[0]!} />
+    ) : (
+      <Text color={color}>{busyTextBar(Math.min(40, cols - 4), info.elapsedMs)}</Text>
+    )
+  ) : isDesk && Svg ? (
     <Svg
       source={barSvg(info.done, info.total, color, Math.max(200, cols * 10))}
       alt={info.done + ' of ' + info.total + ' steps done'}
@@ -746,7 +772,8 @@ function startTicker($: EngineInterface): void {
         await syncHelpers($)
         const b = await read($, board)
         const hs = await read($, helpersAtom)
-        if (!todoLive(b.todo) && !anyWorking(hs)) return
+        const w = await read($, workAtom)
+        if (!todoLive(b.todo) && !anyWorking(hs) && w.turnStart === 0) return
         await ensureClock($)
         $.ui.invalidate('ui.render')
       } catch {
@@ -982,6 +1009,12 @@ async function init($: EngineInterface): Promise<void> {
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     try {
+      // A reopened chat is not mid-reply until its next turn starts.
+      await update($, workAtom, w => (w.turnStart === 0 ? w : { ...w, turnStart: 0 }))
+    } catch {
+      // the status bar is an extra
+    }
+    try {
       startTicker($)
     } catch {
       // the tick is an extra
@@ -992,6 +1025,30 @@ export const register: Register = on => {
       // a failure here must never break the chat
     }
     return next(e)
+  })
+
+  // Claude's own reply: the bar shows work even when there is no to-do list.
+  on('turn.start', async ($, e, next) => {
+    const ran = await next(e)
+    try {
+      if (e.agentId === undefined) {
+        const now = Number(await $.clock.now())
+        await update($, workAtom, w => ({ ...w, turnStart: now }))
+      }
+    } catch {
+      // the status bar is an extra
+    }
+    return ran
+  })
+
+  on('turn.complete', async ($, e, next) => {
+    const ran = await next(e)
+    try {
+      if (e.agentId === undefined) await update($, workAtom, w => (w.turnStart === 0 ? w : { ...w, turnStart: 0 }))
+    } catch {
+      // the status bar is an extra
+    }
+    return ran
   })
 
   on('prompt.submit', async ($, e, next) => {
