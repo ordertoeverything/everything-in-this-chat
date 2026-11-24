@@ -656,7 +656,11 @@ function workInfo(todo: Step[], hs: Helpers, w: Work, now: number): WorkInfo | n
 
 const elapsedWords = (ms: number) => {
   const m = Math.floor(ms / 60000)
-  if (m < 1) return 'just started'
+  if (m < 1) {
+    // count up in tick-sized steps so the first minute visibly moves
+    const s = Math.floor(ms / TICK_MS) * (TICK_MS / 1000)
+    return s < 15 ? 'just started' : s + ' sec in'
+  }
   if (m < 60) return m + ' min in'
   return Math.floor(m / 60) + ' h ' + (m % 60) + ' min in'
 }

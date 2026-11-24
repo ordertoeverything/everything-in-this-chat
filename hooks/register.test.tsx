@@ -315,6 +315,12 @@ for (const surface of ['desktop', 'terminal'] as const) {
     const fresh = await $.ui.mount({ ...PANE, surface })
     expect(await fresh.find({ type: 'Text', text: /^Claude is working · just started$/ })).toBeTruthy()
     await fresh.unmount()
+
+    // The first minute counts up in 15 second steps.
+    clock.now = T0 + 20 * MIN + 40000
+    const secs = await $.ui.mount({ ...PANE, surface })
+    expect(await secs.find({ type: 'Text', text: /^Claude is working · 30 sec in$/ })).toBeTruthy()
+    await secs.unmount()
   })
 
   test('the working clock keeps counting when Claude remakes the to-do list mid-work on ' + surface, async ($, on) => {
