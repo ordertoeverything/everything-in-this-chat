@@ -763,6 +763,10 @@ async function liveHelpers($: EngineInterface): Promise<Helpers> {
 
 let ticker: { cancel: () => void } | null = null
 
+/** When the current piece of work began, kept across back-to-back turns the app starts on its own. */
+const CARRY_MS = 120000
+const run = { start: 0, end: 0 }
+
 /** Starts the 15 second tick once; a reload drops the timer and the module variable together. */
 function startTicker($: EngineInterface): void {
   if (ticker) return
@@ -1028,12 +1032,20 @@ export const register: Register = on => {
   })
 
   // Claude's own reply: the bar shows work even when there is no to-do list.
+  // The app can start several turns in a row for one piece of work (a nudge, a loaded tool),
+  // so the clock keeps the first start unless the person has sent a new message since.
   on('turn.start', async ($, e, next) => {
     const ran = await next(e)
     try {
       if (e.agentId === undefined) {
         const now = Number(await $.clock.now())
-        await update($, workAtom, w => ({ ...w, turnStart: now }))
+        const carry = run.start > 0 && run.end > 0 && now - run.end < CARRY_MS ? run.start : 0
+        await update($, workAtom, w => {
+          const start = w.turnStart > 0 ? w.turnStart : carry > 0 ? carry : now
+          run.start = start
+          run.end = 0
+          return start === w.turnStart ? w : { ...w, turnStart: start }
+        })
       }
     } catch {
       // the status bar is an extra
@@ -1044,7 +1056,10 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     const ran = await next(e)
     try {
-      if (e.agentId === undefined) await update($, workAtom, w => (w.turnStart === 0 ? w : { ...w, turnStart: 0 }))
+      if (e.agentId === undefined) {
+        run.end = Number(await $.clock.now())
+        await update($, workAtom, w => (w.turnStart === 0 ? w : { ...w, turnStart: 0 }))
+      }
     } catch {
       // the status bar is an extra
     }
@@ -1052,6 +1067,9 @@ export const register: Register = on => {
   })
 
   on('prompt.submit', async ($, e, next) => {
+    // A message from the person is new work: the clock starts over.
+    run.start = 0
+    run.end = 0
     const ran = await next(e)
     try {
       await init($)

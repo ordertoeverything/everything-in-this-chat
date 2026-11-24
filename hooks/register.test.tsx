@@ -285,6 +285,37 @@ for (const surface of ['desktop', 'terminal'] as const) {
     expect(await after.find({ type: 'Text', text: /Nothing running right now/ })).toBeTruthy()
     await after.unmount()
   })
+
+  test('the working clock keeps counting across back-to-back turns on ' + surface, async ($, on) => {
+    const clock = { now: T0 }
+    quietHooks(on, [], clock)
+    on('turn.start', (_: unknown, e: { turnId?: string }) => ({ turnId: e.turnId ?? 't1' }))
+    on('turn.complete', () => ({ text: 'done' }))
+    await $.session.start({ cwd: '/Users/x/Claude', surface, isInteractive: true })
+
+    await $.turn.start({ text: 'fix it', turnId: 't1' })
+    // A second start with no end in between keeps the first time.
+    clock.now = T0 + 1 * MIN
+    await $.turn.start({ text: '', turnId: 't2' })
+    // The app ends a turn and starts another on its own a few seconds later.
+    clock.now = T0 + 2 * MIN
+    await $.turn.complete({ answer: '', durationMs: 1, isAborted: false, turnId: 't2', reason: 'answer' })
+    clock.now = T0 + 2 * MIN + 5000
+    await $.turn.start({ text: '', turnId: 't3' })
+    clock.now = T0 + 5 * MIN
+    const busy = await $.ui.mount({ ...PANE, surface })
+    expect(await busy.find({ type: 'Text', text: /^Claude is working · 5 min in$/ })).toBeTruthy()
+    await busy.unmount()
+
+    // After a real pause, a new turn starts the clock over.
+    await $.turn.complete({ answer: 'done', durationMs: 1, isAborted: false, turnId: 't3', reason: 'answer' })
+    clock.now = T0 + 20 * MIN
+    await $.turn.start({ text: 'next', turnId: 't4' })
+    clock.now = T0 + 20 * MIN + 10000
+    const fresh = await $.ui.mount({ ...PANE, surface })
+    expect(await fresh.find({ type: 'Text', text: /^Claude is working · just started$/ })).toBeTruthy()
+    await fresh.unmount()
+  })
 }
 
 for (const surface of ['desktop', 'terminal'] as const) {
