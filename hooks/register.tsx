@@ -24,8 +24,8 @@ const emptyBoard: Board = {
 }
 const board = atom({ plugin: 'everything-in-this-chat', key: 'board' } as const, emptyBoard, { shape: 'board-1' })
 const helpersAtom = atom({ plugin: 'everything-in-this-chat', key: 'helpers' } as const, { list: [], seeded: false } as Helpers, { shape: 'helpers-1' })
-const emptyWork: Work = { listStart: 0, doneAt: [], helperStart: 0, turnStart: 0 }
-const workAtom = atom({ plugin: 'everything-in-this-chat', key: 'work' } as const, emptyWork, { shape: 'work-2' })
+const emptyWork: Work = { listStart: 0, doneAt: [], helperStart: 0, turnStart: 0, workStart: 0, idleSince: 0 }
+const workAtom = atom({ plugin: 'everything-in-this-chat', key: 'work' } as const, emptyWork, { shape: 'work-3' })
 // Every section starts closed in a new chat; a click opens one.
 const ALL_SECTIONS = ['todo', 'helpers', 'usage', 'artifact', 'made', 'changed', 'sent', 'connectors', 'folder', 'files', 'skills']
 const foldedSet = atom({ plugin: 'everything-in-this-chat', key: 'folded' } as const, ALL_SECTIONS as string[])
@@ -563,13 +563,24 @@ function isNewList(prev: Step[], next: Step[]): boolean {
   return !next.some(s => prev.some(p => p.content === s.content))
 }
 
+/** When the current piece of work began, kept across back-to-back turns the app starts on its own. */
+const CARRY_MS = 120000
+
+/** Starts the work clock if it is not running, or if Claude was quiet long enough that this is new work. */
+function startWork(w: Work, now: number, wake: boolean): Work {
+  const stale = w.idleSince > 0 && now - w.idleSince >= CARRY_MS
+  const workStart = w.workStart === 0 || stale ? now : w.workStart
+  const idleSince = wake ? 0 : w.idleSince
+  return workStart === w.workStart && idleSince === w.idleSince ? w : { ...w, workStart, idleSince }
+}
+
 /** Records when a list started and when each step finished, after one to-do change. */
 async function trackWork($: EngineInterface, prev: Step[], next: Step[]): Promise<void> {
   try {
     if (prev === next) return
     const now = Number(await $.clock.now())
     await update($, workAtom, w => {
-      if (isNewList(prev, next)) return { ...w, listStart: now, doneAt: [] }
+      if (isNewList(prev, next)) return { ...startWork(w, now, false), listStart: now, doneAt: [] }
       const gained = doneOf(next) - doneOf(prev)
       if (gained <= 0) return w
       const times = [...w.doneAt]
@@ -592,10 +603,11 @@ async function ensureClock($: EngineInterface): Promise<void> {
     const wantList = live && w.listStart === 0
     const wantHelper = working && w.helperStart === 0
     const dropHelper = !working && w.helperStart !== 0
-    if (!wantList && !wantHelper && !dropHelper) return
+    const wantWork = (live || working) && w.workStart === 0
+    if (!wantList && !wantHelper && !dropHelper && !wantWork) return
     const now = Number(await $.clock.now())
     await update($, workAtom, cur => ({
-      ...cur,
+      ...(live || working ? startWork(cur, now, working) : cur),
       listStart: live && cur.listStart === 0 ? now : cur.listStart,
       helperStart: working ? (cur.helperStart === 0 ? now : cur.helperStart) : 0,
     }))
@@ -631,6 +643,7 @@ function workInfo(todo: Step[], hs: Helpers, w: Work, now: number): WorkInfo | n
     const times = helpers.map(x => x.at).filter(t => t > 0)
     startedAt = times.length ? Math.min(...times) : w.helperStart
   } else startedAt = w.turnStart
+  if (w.workStart > 0) startedAt = w.workStart
   const elapsedMs = startedAt > 0 ? Math.max(0, now - startedAt) : 0
   let leftMs: number | null = null
   if (hasTodo && w.listStart > 0 && w.doneAt.length > 0) {
@@ -672,11 +685,20 @@ function resetWords(iso: string | undefined, now: number): string {
   return 'resets ' + ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()] + ' ' + time
 }
 
-function barSvg(done: number, total: number, color: string, width: number): string {
+/** Steps done, filled in. While Claude is working, a light piece also moves along the part still to do. */
+function barSvg(done: number, total: number, color: string, width: number, movingMs: number | null = null): string {
   const w = done <= 0 ? 0 : Math.min(width, Math.max(10, Math.round((done / total) * width)))
+  let moving = ''
+  const rest = width - w
+  if (movingMs !== null && rest >= 20) {
+    const piece = Math.max(10, Math.round(rest / 4))
+    const x = w + (Math.floor(movingMs / TICK_MS) % 4) * Math.round((rest - piece) / 3)
+    moving = `<rect x="${x}" width="${piece}" height="10" rx="5" fill="${color}" fill-opacity="0.45"/>`
+  }
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} 10" width="${width}" height="10">` +
     `<rect width="${width}" height="10" rx="5" fill="#E5E7EB"/>` +
+    moving +
     (w > 0 ? `<rect width="${w}" height="10" rx="5" fill="${color}"/>` : '') +
     `</svg>`
   )
@@ -697,9 +719,13 @@ const busyTextBar = (len: number, elapsedMs: number) => {
   const at = (Math.floor(elapsedMs / TICK_MS) % 4) * piece
   return '▱'.repeat(at) + '▰'.repeat(piece) + '▱'.repeat(Math.max(0, len - at - piece))
 }
-const textBar = (done: number, total: number, len: number) => {
+const textBar = (done: number, total: number, len: number, movingMs: number | null = null) => {
   const on = Math.min(len, Math.round((done / total) * len))
-  return '▰'.repeat(on) + '▱'.repeat(len - on)
+  const rest = len - on
+  if (movingMs === null || rest < 4) return '▰'.repeat(on) + '▱'.repeat(rest)
+  const piece = Math.max(1, Math.round(rest / 4))
+  const at = (Math.floor(movingMs / TICK_MS) % 4) * Math.floor((rest - piece) / 3)
+  return '▰'.repeat(on) + '▱'.repeat(at) + '▰'.repeat(piece) + '▱'.repeat(Math.max(0, rest - at - piece))
 }
 
 /** The status bar: a wide progress bar with one small dim line under it. Pane only. */
@@ -737,11 +763,11 @@ function workRow(info: WorkInfo | null, ui: { Box: any; Text: any; Svg?: any }, 
     )
   ) : isDesk && Svg ? (
     <Svg
-      source={barSvg(info.done, info.total, color, Math.max(200, cols * 10))}
+      source={barSvg(info.done, info.total, color, Math.max(200, cols * 10), info.busy || info.helpers > 0 ? info.elapsedMs : null)}
       alt={info.done + ' of ' + info.total + ' steps done'}
     />
   ) : (
-    <Text color={color}>{textBar(info.done, info.total, Math.min(40, cols - 4))}</Text>
+    <Text color={color}>{textBar(info.done, info.total, Math.min(40, cols - 4), info.busy || info.helpers > 0 ? info.elapsedMs : null)}</Text>
   )
   return (
     <Box key="work-row" flexDirection="column">
@@ -762,10 +788,6 @@ async function liveHelpers($: EngineInterface): Promise<Helpers> {
 }
 
 let ticker: { cancel: () => void } | null = null
-
-/** When the current piece of work began, kept across back-to-back turns the app starts on its own. */
-const CARRY_MS = 120000
-const run = { start: 0, end: 0 }
 
 /** Starts the 15 second tick once; a reload drops the timer and the module variable together. */
 function startTicker($: EngineInterface): void {
@@ -1014,7 +1036,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     try {
       // A reopened chat is not mid-reply until its next turn starts.
-      await update($, workAtom, w => (w.turnStart === 0 ? w : { ...w, turnStart: 0 }))
+      await update($, workAtom, w => (w.turnStart === 0 && w.workStart === 0 ? w : { ...w, turnStart: 0, workStart: 0, idleSince: 0 }))
     } catch {
       // the status bar is an extra
     }
@@ -1039,12 +1061,9 @@ export const register: Register = on => {
     try {
       if (e.agentId === undefined) {
         const now = Number(await $.clock.now())
-        const carry = run.start > 0 && run.end > 0 && now - run.end < CARRY_MS ? run.start : 0
         await update($, workAtom, w => {
-          const start = w.turnStart > 0 ? w.turnStart : carry > 0 ? carry : now
-          run.start = start
-          run.end = 0
-          return start === w.turnStart ? w : { ...w, turnStart: start }
+          const woke = startWork(w, now, true)
+          return woke.turnStart > 0 ? woke : { ...woke, turnStart: now }
         })
       }
     } catch {
@@ -1057,8 +1076,8 @@ export const register: Register = on => {
     const ran = await next(e)
     try {
       if (e.agentId === undefined) {
-        run.end = Number(await $.clock.now())
-        await update($, workAtom, w => (w.turnStart === 0 ? w : { ...w, turnStart: 0 }))
+        const now = Number(await $.clock.now())
+        await update($, workAtom, w => ({ ...w, turnStart: 0, idleSince: now }))
       }
     } catch {
       // the status bar is an extra
@@ -1067,9 +1086,13 @@ export const register: Register = on => {
   })
 
   on('prompt.submit', async ($, e, next) => {
-    // A message from the person is new work: the clock starts over.
-    run.start = 0
-    run.end = 0
+    // A message from the person while Claude is quiet is new work: the clock starts over.
+    // A message sent mid-reply joins the work already running, so the clock keeps going.
+    try {
+      await update($, workAtom, w => (w.turnStart > 0 || w.workStart === 0 ? w : { ...w, workStart: 0, idleSince: 0 }))
+    } catch {
+      // the status bar is an extra
+    }
     const ran = await next(e)
     try {
       await init($)

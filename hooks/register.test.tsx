@@ -316,6 +316,30 @@ for (const surface of ['desktop', 'terminal'] as const) {
     expect(await fresh.find({ type: 'Text', text: /^Claude is working · just started$/ })).toBeTruthy()
     await fresh.unmount()
   })
+
+  test('the working clock keeps counting when Claude remakes the to-do list mid-work on ' + surface, async ($, on) => {
+    const clock = { now: T0 }
+    quietHooks(on, [], clock)
+    on('turn.start', (_: unknown, e: { turnId?: string }) => ({ turnId: e.turnId ?? 't1' }))
+    on('turn.complete', () => ({ text: 'done' }))
+    on('tool.call', () => ({ result: {}, text: 'ok' }) as never)
+    on('prompt.submit', (_: unknown, e: { text: string }) => ({ text: e.text }) as never)
+    await $.session.start({ cwd: '/Users/x/Claude', surface, isInteractive: true })
+
+    await $.turn.start({ text: 'build it', turnId: 't1' })
+    await $.tool.call({ tool: 'mcp__ccd_turn__update_plan', items: [{ content: 'A', status: 'in_progress' }, { content: 'B', status: 'pending' }] } as never)
+    clock.now = T0 + 6 * MIN
+    // A brand new list, mid-work.
+    await $.tool.call({ tool: 'mcp__ccd_turn__update_plan', items: [{ content: 'C', status: 'in_progress' }, { content: 'D', status: 'pending' }] } as never)
+    // The person types a note while Claude is still working.
+    await $.prompt.submit({ text: 'note the time' } as never)
+    clock.now = T0 + 9 * MIN
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await ui.find({ type: 'Text', text: /^Step 1 of 2 · estimate after step 1 · 9 min in$/ })).toBeTruthy()
+    // Nothing done yet, but the bar still shows a moving piece while Claude works.
+    if (surface === 'terminal') expect(await ui.find({ type: 'Text', text: /▰/ })).toBeTruthy()
+    await ui.unmount()
+  })
 }
 
 for (const surface of ['desktop', 'terminal'] as const) {

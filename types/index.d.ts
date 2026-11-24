@@ -46,6 +46,10 @@ export type Work = {
   helperStart: number
   /** When the main chat's current turn began; 0 while Claude is not working. */
   turnStart: number
+  /** When the current stretch of work began (turns, to-do lists and helpers together); 0 when none. */
+  workStart: number
+  /** When Claude last went quiet; a pause longer than CARRY_MS starts the clock over. 0 while working. */
+  idleSince: number
 }
 
 export type AppCall = { words: string; arg: string; at: number }
